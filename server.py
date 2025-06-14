@@ -1,11 +1,11 @@
-import socket
+# server.py
+from flask import Flask, request, jsonify
 import threading
-import pickle
+import time
 
-HOST = '0.0.0.0'
-PORT = 12345
+app = Flask(__name__)
 
-# État initial du jeu
+# État initial
 game_state = {
     "ball": [400, 300],
     "ball_vel": [5, 5],
@@ -16,63 +16,63 @@ game_state = {
     "score": [0, 0]
 }
 
-clients = {}
+connected_players = 0
+lock = threading.Lock()
 
-def handle_client(conn, player_id):
-    global game_state
-    conn.send(pickle.dumps(player_id))  # Envoie l'ID au client
-    while True:
-        try:
-            paddle_y = pickle.loads(conn.recv(1024))
-            game_state["paddles"][player_id] = paddle_y
-        except:
-            break
+@app.route("/join", methods=["GET"])
+def join():
+    global connected_players
+    with lock:
+        if connected_players >= 2:
+            return jsonify({"error": "Game full"}), 403
+        player_id = connected_players
+        connected_players += 1
+    return jsonify({"player_id": player_id})
+
+@app.route("/update", methods=["POST"])
+def update():
+    data = request.get_json()
+    player_id = data.get("player_id")
+    paddle_y = data.get("paddle_y")
+    with lock:
+        game_state["paddles"][player_id] = paddle_y
+    return jsonify(success=True)
+
+@app.route("/state", methods=["GET"])
+def state():
+    with lock:
+        return jsonify(game_state)
 
 def update_game():
     while True:
-        game_state["ball"][0] += game_state["ball_vel"][0]
-        game_state["ball"][1] += game_state["ball_vel"][1]
+        time.sleep(0.03)
+        with lock:
+            game_state["ball"][0] += game_state["ball_vel"][0]
+            game_state["ball"][1] += game_state["ball_vel"][1]
 
-        # Collisions avec le haut/bas
-        if game_state["ball"][1] <= 0 or game_state["ball"][1] >= 600:
-            game_state["ball_vel"][1] *= -1
+            # Bords haut/bas
+            if game_state["ball"][1] <= 0 or game_state["ball"][1] >= 600:
+                game_state["ball_vel"][1] *= -1
 
-        # Collisions avec les raquettes
-        if game_state["ball"][0] <= 60 and game_state["paddles"][0] < game_state["ball"][1] < game_state["paddles"][0] + 100:
-            game_state["ball_vel"][0] *= -1
-        elif game_state["ball"][0] >= 740 and game_state["paddles"][1] < game_state["ball"][1] < game_state["paddles"][1] + 100:
-            game_state["ball_vel"][0] *= -1
+            # Collisions raquettes
+            if game_state["ball"][0] <= 60 and game_state["paddles"][0] < game_state["ball"][1] < game_state["paddles"][0] + 100:
+                game_state["ball_vel"][0] *= -1
+            elif game_state["ball"][0] >= 740 and game_state["paddles"][1] < game_state["ball"][1] < game_state["paddles"][1] + 100:
+                game_state["ball_vel"][0] *= -1
 
-        # Points
-        if game_state["ball"][0] < 0:
-            game_state["score"][1] += 1
-            game_state["ball"] = [400, 300]
-        if game_state["ball"][0] > 800:
-            game_state["score"][0] += 1
-            game_state["ball"] = [400, 300]
+            # Points
+            if game_state["ball"][0] < 0:
+                game_state["score"][1] += 1
+                game_state["ball"] = [400, 300]
+            elif game_state["ball"][0] > 800:
+                game_state["score"][0] += 1
+                game_state["ball"] = [400, 300]
 
-        for conn in clients.values():
-            try:
-                conn.sendall(pickle.dumps(game_state))
-            except:
-                continue
+# Lancer la boucle de jeu dans un thread
+threading.Thread(target=update_game, daemon=True).start()
 
-import time
-def start_server():
-    global clients
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((HOST, PORT))
-    server.listen(2)
-    print("Serveur en attente de 2 joueurs...")
-
-    player_id = 0
-    while player_id < 2:
-        conn, addr = server.accept()
-        print(f"Connexion du joueur {player_id} depuis {addr}")
-        clients[player_id] = conn
-        threading.Thread(target=handle_client, args=(conn, player_id)).start()
-        player_id += 1
-
-    threading.Thread(target=update_game).start()
-
-start_server()
+# Point d'entrée Render
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
