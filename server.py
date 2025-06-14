@@ -1,4 +1,4 @@
-# server.py
+tu peux modifier directement mon code stp : # server.py
 from flask import Flask, request, jsonify
 import threading
 import time
