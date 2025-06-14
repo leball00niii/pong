@@ -1,8 +1,15 @@
+# server.py
 from flask import Flask, request, jsonify
 import threading
 import time
+import os
 
 app = Flask(__name__)
+
+# ➕ Route d'accueil pour éviter l'erreur 404 sur /
+@app.route("/")
+def index():
+    return "Bienvenue sur le serveur Pong ! Utilisez /join, /update et /state pour interagir avec l'API."
 
 # État initial
 game_state = {
@@ -72,6 +79,5 @@ threading.Thread(target=update_game, daemon=True).start()
 
 # Point d'entrée Render
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
